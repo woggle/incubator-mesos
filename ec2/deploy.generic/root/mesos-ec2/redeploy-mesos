@@ -1,0 +1,25 @@
+#!/bin/bash
+cd /root/mesos-ec2
+
+MASTERS=`cat masters`
+NUM_MASTERS=`cat masters | wc -l`
+SLAVES=`cat slaves`
+
+SSH_OPTS="-o StrictHostKeyChecking=no -o ConnectTimeout=5"
+
+if [[ $NUM_MASTERS -gt 1 ]]; then
+  echo "RSYNC'ing /root/mesos to masters..."
+  for master in $MASTERS; do
+    echo $master
+    rsync -e "ssh $SSH_OPTS" -az /root/mesos $master:/root & sleep 0.3
+  done
+  wait
+fi
+
+echo "RSYNC'ing /root/mesos, /root/hadoop, /root/mesos.jar to slaves..."
+for slave in $SLAVES; do
+  echo $slave
+  rsync -e "ssh $SSH_OPTS" -az /root/mesos /root/hadoop /root/mesos.jar $slave:/root & sleep 0.3
+done
+wait
+

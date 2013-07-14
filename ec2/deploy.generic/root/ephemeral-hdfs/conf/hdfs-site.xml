@@ -33,4 +33,14 @@
     <value>false</value>
   </property>
 
+  <property>
+    <name>dfs.namenode.secondary.http-address</name>
+    <value>{{active_master}}:50090</value>
+  </property>
+
+  <property>
+    <name>dfs.secondary.http.address</name>
+    <value>{{active_master}}:50090</value>
+  </property>
+
 </configuration>

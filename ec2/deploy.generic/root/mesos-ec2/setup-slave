@@ -3,6 +3,8 @@
 # Make sure we are in the mesos-ec2 directory
 cd /root/mesos-ec2
 
+apt-get install psmisc
+
 # Set hostname based on EC2 private DNS name, so that it is set correctly
 # even if the instance is restarted with a different private DNS name
 PRIVATE_DNS=`wget -q -O - http://instance-data.ec2.internal/latest/meta-data/local-hostname`
@@ -33,8 +35,9 @@ create_hadoop_dirs /mnt
 mkdir -p /mnt/ephemeral-hdfs/logs
 mkdir -p /mnt/persistent-hdfs/logs
 mkdir -p /mnt/hadoop-logs
-mkdir -p /mnt/mesos-logs
 mkdir -p /mnt/mesos-work
+mkdir -p /mnt/hadoop-framework
+chown -R hadoop /mnt/hadoop-logs /mnt/hadoop-framework
 
 # Mount any ephemeral volumes we might have beyond /mnt
 function setup_extra_volume {
@@ -52,13 +55,6 @@ function setup_extra_volume {
 setup_extra_volume /dev/xvdc /mnt2
 setup_extra_volume /dev/xvdd /mnt3
 setup_extra_volume /dev/xvde /mnt4
-
-# Mount cgroup file system
-if [[ ! -e /cgroup ]]; then
-  mkdir -p /cgroup
-  mount -t cgroup none /cgroup
-  echo "none /cgroup cgroup defaults 0 0" >> /etc/fstab
-fi
 
 # Format and mount EBS volume (/dev/sdv) as /vol if the device exists
 # and we have not already created /vol
@@ -89,3 +85,14 @@ rm -f /root/.ssh/known_hosts
 
 # Create swap space on /mnt
 /root/mesos-ec2/create-swap $SWAP_MB
+
+# Setup symlinks to mesos-ec2/mesos-{master,slave}-env.sh
+ln -s /root/mesos-ec2/mesos-slave-env.sh \
+      /root/mesos/var/mesos/deploy/mesos-slave-env.sh
+ln -s /root/mesos-ec2/mesos-master-env.sh \
+      /root/mesos/var/mesos/deploy/mesos-master-env.sh
+ln -s /root/mesos-ec2/spark-env.sh \
+      /root/spark/conf/spark-env.sh
+
+# Create directory to mount cgroup into.
+mkdir -p /cgroup

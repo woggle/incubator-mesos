@@ -29,13 +29,10 @@ import sys
 import tempfile
 import time
 import urllib2
+import json
 from optparse import OptionParser
 from sys import stderr
 from boto.ec2.blockdevicemapping import BlockDeviceMapping, EBSBlockDeviceType
-
-
-# A static URL from which to figure out the latest Mesos EC2 AMI
-LATEST_AMI_URL = "https://s3.amazonaws.com/mesos-images/ids/latest"
 
 
 # Configure and parse our command-line arguments
@@ -53,23 +50,16 @@ def parse_args():
       help="Key pair to use on instances")
   parser.add_option("-i", "--identity-file", 
       help="SSH private key file to use for logging into instances")
-  parser.add_option("-t", "--instance-type", default="m1.large",
-      help="Type of instance to launch (default: m1.large). " +
-           "WARNING: must be 64 bit, thus small instances won't work")
+  parser.add_option("-t", "--instance-type", default="t1.micro",
+      help="Type of instance to launch (default: t1.micro).")
   parser.add_option("-m", "--master-instance-type", default="",
       help="Master instance type (leave empty for same as instance-type)")
   parser.add_option("-z", "--zone", default="us-east-1b",
       help="Availability zone to launch instances in")
-  parser.add_option("-a", "--ami", default="ami-4517dc2c",
-      help="Amazon Machine Image ID to use, or 'latest' to use latest " +
-           "availabe AMI (default: ami-4517dc2c)")
-  parser.add_option("-o", "--os", default="amazon64",
-      help="OS on the Amazon Machine Image (default: amazon64)")
-  parser.add_option("-d", "--download", metavar="SOURCE", default="none",
-      help="Where to download latest code from: set to 'git' to check out " +
-           "from git, or 'none' to use the Mesos on the AMI (default)")
-  parser.add_option("-b", "--branch", default="master",
-      help="If using git, which branch to check out. Default is 'master'")
+  parser.add_option("-a", "--ami",
+      help="Amazon Machine Image ID to use")
+  parser.add_option("-o", "--os", default="generic",
+      help="OS on the Amazon Machine Image (default: generic)")
   parser.add_option("-D", metavar="[ADDRESS:]PORT", dest="proxy_port", 
       help="Use SSH dynamic port forwarding to create a SOCKS proxy at " +
             "the given local address (for use with login)")
@@ -98,6 +88,8 @@ def parse_args():
     print >> stderr, ("ERROR: The -i or --identity-file argument is " +
                       "required for " + action)
     sys.exit(1)
+  if opts.ami == None and action in ['launch']:
+    print >> stderr, ("ERROR: The -a or --ami optoion is required for launch")
   if os.getenv('AWS_ACCESS_KEY_ID') == None:
     print >> stderr, ("ERROR: The environment variable AWS_ACCESS_KEY_ID " +
                       "must be set")
@@ -154,7 +146,6 @@ def launch_cluster(conn, opts, cluster_name):
     master_group.authorize(src_group=slave_group)
     master_group.authorize(src_group=zoo_group)
     master_group.authorize('tcp', 22, 22, '0.0.0.0/0')
-    master_group.authorize('tcp', 8080, 8081, '0.0.0.0/0')
     master_group.authorize('tcp', 50030, 50030, '0.0.0.0/0')
     master_group.authorize('tcp', 50070, 50070, '0.0.0.0/0')
     master_group.authorize('tcp', 60070, 60070, '0.0.0.0/0')
@@ -164,7 +155,6 @@ def launch_cluster(conn, opts, cluster_name):
     slave_group.authorize(src_group=slave_group)
     slave_group.authorize(src_group=zoo_group)
     slave_group.authorize('tcp', 22, 22, '0.0.0.0/0')
-    slave_group.authorize('tcp', 8080, 8081, '0.0.0.0/0')
     slave_group.authorize('tcp', 50060, 50060, '0.0.0.0/0')
     slave_group.authorize('tcp', 50075, 50075, '0.0.0.0/0')
     slave_group.authorize('tcp', 60060, 60060, '0.0.0.0/0')
@@ -190,13 +180,6 @@ def launch_cluster(conn, opts, cluster_name):
             "group %s, %s or %s" % (master_group.name, slave_group.name, zoo_group.name))
         sys.exit(1)
   print "Launching instances..."
-
-  if opts.ami == "latest":
-    # Figure out the latest AMI from our static URL
-    try:
-      opts.ami = urllib2.urlopen(LATEST_AMI_URL).read().strip()
-    except:
-      print >> stderr, "Could not read " + LATEST_AMI_URL
 
   try:
     image = conn.get_all_images(image_ids=[opts.ami])[0]
@@ -307,12 +290,15 @@ def get_existing_cluster(conn, opts, cluster_name):
     active = [i for i in res.instances if is_active(i)]
     if len(active) > 0:
       group_names = [g.id for g in res.groups]
+      print ("Found group %s; active %s\n" % (group_names, active))
       if group_names == [cluster_name + "-master"]:
         master_nodes += res.instances
       elif group_names == [cluster_name + "-slaves"]:
         slave_nodes += res.instances
       elif group_names == [cluster_name + "-zoo"]:
         zoo_nodes += res.instances
+    else:
+      print ("Found group %s; all-inactive %s\n" % (res.groups, res.instances))
   if master_nodes != [] and slave_nodes != []:
     print ("Found %d master(s), %d slaves, %d ZooKeeper nodes" %
            (len(master_nodes), len(slave_nodes), len(zoo_nodes)))
@@ -339,8 +325,8 @@ def setup_cluster(conn, master_nodes, slave_nodes, zoo_nodes, opts, deploy_ssh_k
     scp(master, opts, opts.identity_file, '/root/.ssh/id_rsa')
   print "Running setup on master..."
   ssh(master, opts, "chmod u+x mesos-ec2/setup")
-  ssh(master, opts, "mesos-ec2/setup %s %s %s %s" %
-      (opts.os, opts.download, opts.branch, opts.swap))
+  ssh(master, opts, "mesos-ec2/setup %s %s" %
+      (opts.os, opts.swap))
   print "Done!"
 
 
@@ -363,7 +349,6 @@ def get_num_disks(instance_type):
     "m1.small":    1,
     "m1.large":    2,
     "m1.xlarge":   4,
-    "t1.micro":    1,
     "c1.medium":   1,
     "c1.xlarge":   4,
     "m2.xlarge":   1,
@@ -371,7 +356,14 @@ def get_num_disks(instance_type):
     "m2.4xlarge":  2,
     "cc1.4xlarge": 2,
     "cc2.8xlarge": 4,
-    "cg1.4xlarge": 2
+    "cg1.4xlarge": 2,
+    "cr1.8xlarge": 2,
+    "hi1.4xlarge": 2,
+    "hs1.8xlarge": 24,
+
+    "t1.micro":    0,
+    "m3.xlarge":   0,
+    "m3.2xlarge":  0,
   }
   if instance_type in disks_by_instance:
     return disks_by_instance[instance_type]
@@ -403,11 +395,7 @@ def deploy_files(conn, root_dir, opts, master_nodes, slave_nodes, zoo_nodes):
         ["%s:2181/mesos" % i.public_dns_name for i in zoo_nodes])
   else:
     zoo_list = "NONE"
-    # TODO: temporary code to support older versions of Mesos with 1@ URLs
-    if opts.os == "amazon64":
-      cluster_url = "master@%s:5050" % active_master
-    else:
-      cluster_url = "1@%s:5050" % active_master
+    cluster_url = "%s:5050" % active_master
 
   template_vars = {
     "master_list": '\n'.join([i.public_dns_name for i in master_nodes]),
@@ -459,7 +447,6 @@ def ssh(host, opts, command):
   subprocess.check_call(
       "ssh -t -o StrictHostKeyChecking=no -i %s root@%s '%s'" %
       (opts.identity_file, host, command), shell=True)
-
 
 def main():
   (opts, action, cluster_name) = parse_args()

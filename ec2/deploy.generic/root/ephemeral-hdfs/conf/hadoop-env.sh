@@ -6,13 +6,17 @@
 # remote nodes.
 
 # The java implementation to use.  Required.
-export JAVA_HOME=/usr/lib/jvm/java-1.6.0-openjdk.x86_64
+if [ -e /etc/alternatives/jre ]; then
+  export JAVA_HOME=/etc/alternatives/jre
+elif [ -e /usr/lib/jvm/default-java ]; then
+  export JAVA_HOME=/usr/lib/jvm/default-java
+fi
 
 # Extra Java CLASSPATH elements.  Optional.
 # export HADOOP_CLASSPATH=
 
 # The maximum amount of heap to use, in MB. Default is 1000.
-export HADOOP_HEAPSIZE=1000
+export HADOOP_HEAPSIZE=500
 
 # Extra Java runtime options.  Empty by default.
 # export HADOOP_OPTS=-server
@@ -34,7 +38,7 @@ export HADOOP_SSH_OPTS="-o ConnectTimeout=5"
 
 # Where log files are stored.  $HADOOP_HOME/logs by default.
 # export HADOOP_LOG_DIR=${HADOOP_HOME}/logs
-export HADOOP_LOG_DIR=/mnt/hadoop-logs
+export HADOOP_LOG_DIR=/mnt/ephemeral-hdfs/logs
 
 # File naming remote slave hosts.  $HADOOP_HOME/conf/slaves by default.
 # export HADOOP_SLAVES=${HADOOP_HOME}/conf/slaves
@@ -48,7 +52,7 @@ export HADOOP_LOG_DIR=/mnt/hadoop-logs
 # export HADOOP_SLAVE_SLEEP=0.1
 
 # The directory where pid files are stored. /tmp by default.
-# export HADOOP_PID_DIR=/var/hadoop/pids
+export HADOOP_PID_DIR=/var/hadoop/ephemeral-hdfs/pids
 
 # A string representing this instance of hadoop. $USER by default.
 # export HADOOP_IDENT_STRING=$USER
@@ -56,4 +60,11 @@ export HADOOP_LOG_DIR=/mnt/hadoop-logs
 # The scheduling priority for daemon processes.  See 'man nice'.
 # export HADOOP_NICENESS=10
 
-ulimit -n 10000
+# Set hadoop user for CDH (which doesn't allow running as root)
+export HADOOP_NAMENODE_USER=hadoop
+export HADOOP_DATANODE_USER=hadoop
+export HADOOP_SECONDARYNAMENODE_USER=hadoop
+export HADOOP_JOBTRACKER_USER=hadoop
+export HADOOP_TASKTRACKER_USER=hadoop
+
+ulimit -n 16000

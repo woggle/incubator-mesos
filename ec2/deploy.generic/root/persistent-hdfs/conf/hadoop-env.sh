@@ -6,13 +6,17 @@
 # remote nodes.
 
 # The java implementation to use.  Required.
-export JAVA_HOME=/usr/lib/jvm/java-1.6.0
+if [ -e /etc/alternatives/jre ]; then
+  export JAVA_HOME=/etc/alternatives/jre
+elif [ -e /usr/lib/jvm/default-java ]; then
+  export JAVA_HOME=/usr/lib/jvm/default-java
+fi
 
 # Extra Java CLASSPATH elements.  Optional.
 # export HADOOP_CLASSPATH=
 
 # The maximum amount of heap to use, in MB. Default is 1000.
-export HADOOP_HEAPSIZE=1000
+export HADOOP_HEAPSIZE=500
 
 # Extra Java runtime options.  Empty by default.
 # export HADOOP_OPTS=-server
